@@ -21,8 +21,18 @@ jobs:
             bin: github_fetcher
             archive_ext: tar.gz
             use_nix: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            bin: github_fetcher
+            archive_ext: tar.gz
+            use_nix: true
           - os: macos-latest
             target: aarch64-apple-darwin
+            bin: github_fetcher
+            archive_ext: tar.gz
+            use_nix: true
+          - os: macos-13
+            target: x86_64-apple-darwin
             bin: github_fetcher
             archive_ext: tar.gz
             use_nix: true
