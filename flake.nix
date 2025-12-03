@@ -28,6 +28,12 @@
         muslCcX64 = pkgs.pkgsCross.musl64.stdenv.cc;
         muslCcArm64 = pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv.cc;
 
+        targetAliases = {
+          "arm64-apple-darwin" = "aarch64-apple-darwin";
+        };
+
+        canonicalTarget = target: targetAliases.${target} or target;
+
         mkPackage =
           {
             target,
@@ -35,19 +41,20 @@
             crossCc ? null,
           }:
           let
-            toolchain = baseRust.override { targets = [ target ]; };
+            rustTarget = canonicalTarget target;
+            toolchain = baseRust.override { targets = [ rustTarget ]; };
             rustPlatform = targetPkgs.makeRustPlatform {
               cargo = toolchain;
               rustc = toolchain;
             };
 
             targetEnv = lib.optionalAttrs (crossCc != null) {
-              "CC_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "${crossCc}/bin/${target}-gcc";
-              "CARGO_TARGET_${builtins.replaceStrings [ "-" ] [ "_" ] (lib.toUpper target)}_LINKER" =
-                "${crossCc}/bin/${target}-gcc";
-              "AR_${builtins.replaceStrings [ "-" ] [ "_" ] target}" =
-                "${crossCc.bintools}/bin/${target}-ar";
-              CARGO_BUILD_TARGET = target;
+              "CC_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" = "${crossCc}/bin/${rustTarget}-gcc";
+              "CARGO_TARGET_${builtins.replaceStrings [ "-" ] [ "_" ] (lib.toUpper rustTarget)}_LINKER" =
+                "${crossCc}/bin/${rustTarget}-gcc";
+              "AR_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" =
+                "${crossCc.bintools}/bin/${rustTarget}-ar";
+              CARGO_BUILD_TARGET = rustTarget;
             };
           in
           rustPlatform.buildRustPackage (
@@ -56,7 +63,7 @@
               version = "0.1.0";
               src = ./.;
               cargoLock.lockFile = ./Cargo.lock;
-              cargoBuildTarget = target;
+              cargoBuildTarget = rustTarget;
 
               nativeBuildInputs = lib.optionals (crossCc != null) [ crossCc ];
             }
