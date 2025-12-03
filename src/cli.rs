@@ -5,7 +5,7 @@ use clap::{Parser, ValueEnum};
 /// Command-line arguments for configuring the MCP server.
 #[derive(Parser, Debug)]
 #[command(
-    name = "github_fetcher",
+    name = "github-fetcher-mcp",
     about = "MCP server for crawling GitHub code over stdio"
 )]
 pub struct Args {

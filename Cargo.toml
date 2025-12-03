@@ -1,6 +1,6 @@
 [package]
-name = "github_fetcher"
-version = "0.1.0"
+name = "github-fetcher-mcp"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -17,3 +17,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[[bin]]
+name = "github-fetcher-mcp"
+path = "src/main.rs"

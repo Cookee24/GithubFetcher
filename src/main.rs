@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use github_fetcher::{cli::Args, run};
+use github_fetcher_mcp::{cli::Args, run};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

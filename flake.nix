@@ -59,8 +59,8 @@
           in
           rustPlatform.buildRustPackage (
             {
-              pname = "github_fetcher";
-              version = "0.1.0";
+              pname = "github-fetcher-mcp";
+              version = "0.1.1";
               src = ./.;
               cargoLock.lockFile = ./Cargo.lock;
               cargoBuildTarget = rustTarget;
@@ -73,9 +73,9 @@
       in
       {
         packages = {
-          default = self.packages.${system}.github_fetcher;
+          default = self.packages.${system}."github-fetcher-mcp";
 
-          github_fetcher = mkPackage { target = pkgs.stdenv.hostPlatform.config; };
+          "github-fetcher-mcp" = mkPackage { target = pkgs.stdenv.hostPlatform.config; };
         }
         // lib.optionalAttrs isLinux {
           "x86_64-unknown-linux-musl" = mkPackage {

@@ -22,22 +22,22 @@ jobs:
           # Linux x64 (Musl Static)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            bin_name: github_fetcher
+            bin_name: github-fetcher-mcp
             use_nix: true
           # Linux ARM64 (Musl Static)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            bin_name: github_fetcher
+            bin_name: github-fetcher-mcp
             use_nix: true
           # macOS ARM64 (Apple Silicon)
           - os: macos-latest
             target: aarch64-apple-darwin
-            bin_name: github_fetcher
+            bin_name: github-fetcher-mcp
             use_nix: true
           # Windows x64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            bin_name: github_fetcher.exe
+            bin_name: github-fetcher-mcp.exe
             use_nix: false
 
     steps:
@@ -58,7 +58,7 @@ jobs:
           DIST_DIR="dist"
           mkdir -p "$DIST_DIR"
 
-          ARCHIVE_NAME="github_fetcher-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          ARCHIVE_NAME="github-fetcher-mcp-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
 
           cp -L result/bin/${{ matrix.bin_name }} "$DIST_DIR/"
 
@@ -82,7 +82,7 @@ jobs:
           DIST_DIR="dist"
           mkdir -p "$DIST_DIR"
 
-          ARCHIVE_NAME="github_fetcher-${{ github.ref_name }}-${{ matrix.target }}.zip"
+          ARCHIVE_NAME="github-fetcher-mcp-${{ github.ref_name }}-${{ matrix.target }}.zip"
 
           cp "target/release/${{ matrix.bin_name }}" "$DIST_DIR/"
 

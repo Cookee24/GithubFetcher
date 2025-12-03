@@ -392,8 +392,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "github_fetcher"
-version = "0.1.0"
+name = "github-fetcher-mcp"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64",
