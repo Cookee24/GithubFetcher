@@ -12,6 +12,9 @@ jobs:
   nix:
     name: Nix CI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      id-token: write
+      contents: read
     env:
       CARGO_TERM_COLOR: always
     strategy:
