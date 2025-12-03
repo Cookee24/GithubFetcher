@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  nix:
+    name: Nix CI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@main
+
+      - name: Format check (nix develop)
+        run: nix develop -c cargo fmt --all -- --check
+
+      - name: Tests (nix develop)
+        run: nix develop -c cargo test --all
+
+      - name: Build package
+        run: nix build .#github_fetcher
+
+  windows-test:
+    name: Windows tests
+    runs-on: windows-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Tests
+        run: cargo test --all

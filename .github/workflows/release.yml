@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin: github_fetcher
+            archive_ext: tar.gz
+            use_nix: true
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin: github_fetcher
+            archive_ext: tar.gz
+            use_nix: true
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: github_fetcher.exe
+            archive_ext: zip
+            use_nix: false
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        if: matrix.use_nix == true
+        uses: DeterminateSystems/determinate-nix-action@main
+
+      - name: Install Rust
+        if: matrix.use_nix == false
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Nix build
+        if: matrix.use_nix == true
+        run: nix build .#github_fetcher
+
+      - name: Build release binary
+        if: matrix.use_nix == true
+        run: nix develop -c cargo build --release --target ${{ matrix.target }}
+
+      - name: Build release binary (Windows)
+        if: matrix.use_nix == false
+        run: cargo build --release
+
+      - name: Package binary
+        if: matrix.use_nix == true
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          TARGET="${{ matrix.target }}"
+          BIN_NAME="${{ matrix.bin }}"
+          ARCHIVE_EXT="${{ matrix.archive_ext }}"
+          ARCHIVE="github_fetcher-${TAG}-${TARGET}.${ARCHIVE_EXT}"
+
+          nix develop -c bash -lc "mkdir -p dist && tar -czf dist/${ARCHIVE} -C target/${TARGET}/release ${BIN_NAME}"
+          echo "ARCHIVE_PATH=dist/${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Package binary (Windows)
+        if: matrix.use_nix == false
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          TAG="${GITHUB_REF_NAME}"
+          TARGET="${{ matrix.target }}"
+          BIN_NAME="${{ matrix.bin }}"
+          ARCHIVE_EXT="${{ matrix.archive_ext }}"
+
+          ARCHIVE="github_fetcher-${TAG}-${TARGET}.${ARCHIVE_EXT}"
+          cp "target/release/${BIN_NAME}" dist/
+          (cd dist && powershell -Command "Compress-Archive -Path '${BIN_NAME}' -DestinationPath '${ARCHIVE}'")
+          rm "dist/${BIN_NAME}"
+          echo "ARCHIVE_PATH=dist/${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github_fetcher-${{ matrix.target }}
+          path: ${{ env.ARCHIVE_PATH }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: github_fetcher-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate changelog
+        id: changelog
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            const { data } = await github.rest.repos.generateReleaseNotes({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+            });
+            core.setOutput('body', data.body || `Release notes for ${tag}`);
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
+          body: ${{ steps.changelog.outputs.body }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
