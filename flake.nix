@@ -1,5 +1,5 @@
 {
-  description = "Dev shell for github_fetcher with musl toolchain";
+  description = "Github Fetcher with multi-target support";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -14,84 +14,103 @@
       flake-utils,
       rust-overlay,
     }:
-    flake-utils.lib.eachDefaultSystem (
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (
       system:
       let
         overlays = [ rust-overlay.overlays.default ];
         pkgs = import nixpkgs { inherit system overlays; };
         lib = pkgs.lib;
-        useMusl = pkgs.stdenv.isLinux;
-        rustToolchain =
-          if useMusl then
-            pkgs.rust-bin.stable.latest.default.override {
-              targets = [
-                "x86_64-unknown-linux-musl"
-                "aarch64-unknown-linux-musl"
-              ];
-            }
-          else
-            pkgs.rust-bin.stable.latest.default;
-        rustPlatform = pkgs.makeRustPlatform {
-          cargo = rustToolchain;
-          rustc = rustToolchain;
-        };
-        muslCc = pkgs.pkgsCross.musl64.stdenv.cc;
-        aarch64MuslCc = pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv.cc;
-        linuxMuslEnv = lib.optionalAttrs useMusl {
-          CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
-          CC_x86_64_unknown_linux_musl = "${muslCc}/bin/x86_64-unknown-linux-musl-gcc";
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${muslCc}/bin/x86_64-unknown-linux-musl-gcc";
-          AR_x86_64_unknown_linux_musl = "${muslCc.bintools}/bin/x86_64-unknown-linux-musl-ar";
-          CC_aarch64_unknown_linux_musl = "${aarch64MuslCc}/bin/aarch64-unknown-linux-musl-gcc";
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER = "${aarch64MuslCc}/bin/aarch64-unknown-linux-musl-gcc";
-          AR_aarch64_unknown_linux_musl = "${aarch64MuslCc.bintools}/bin/aarch64-unknown-linux-musl-ar";
-          nativeBuildInputs = [
-            muslCc
-            aarch64MuslCc
-          ];
-        };
-      in
-      {
-        packages = rec {
-          default = github_fetcher;
 
-          github_fetcher = rustPlatform.buildRustPackage (
+        baseRust = pkgs.rust-bin.stable.latest.default;
+
+        isLinux = pkgs.stdenv.isLinux;
+
+        muslCcX64 = pkgs.pkgsCross.musl64.stdenv.cc;
+        muslCcArm64 = pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv.cc;
+
+        mkPackage =
+          {
+            target,
+            targetPkgs ? pkgs,
+            crossCc ? null,
+          }:
+          let
+            toolchain = baseRust.override { targets = [ target ]; };
+            rustPlatform = targetPkgs.makeRustPlatform {
+              cargo = toolchain;
+              rustc = toolchain;
+            };
+
+            targetEnv = lib.optionalAttrs (crossCc != null) {
+              "CC_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "${crossCc}/bin/${target}-gcc";
+              "CARGO_TARGET_${builtins.replaceStrings [ "-" ] [ "_" ] (lib.toUpper target)}_LINKER" =
+                "${crossCc}/bin/${target}-gcc";
+              "AR_${builtins.replaceStrings [ "-" ] [ "_" ] target}" =
+                "${crossCc.bintools}/bin/${target}-ar";
+              CARGO_BUILD_TARGET = target;
+            };
+          in
+          rustPlatform.buildRustPackage (
             {
               pname = "github_fetcher";
               version = "0.1.0";
               src = ./.;
               cargoLock.lockFile = ./Cargo.lock;
+              cargoBuildTarget = target;
+
+              nativeBuildInputs = lib.optionals (crossCc != null) [ crossCc ];
             }
-            // linuxMuslEnv
+            // targetEnv
           );
+
+      in
+      {
+        packages = {
+          default = self.packages.${system}.github_fetcher;
+
+          github_fetcher = mkPackage { target = pkgs.stdenv.hostPlatform.config; };
+        }
+        // lib.optionalAttrs isLinux {
+          "x86_64-unknown-linux-musl" = mkPackage {
+            target = "x86_64-unknown-linux-musl";
+            targetPkgs = pkgs.pkgsCross.musl64;
+            crossCc = muslCcX64;
+          };
+          "aarch64-unknown-linux-musl" = mkPackage {
+            target = "aarch64-unknown-linux-musl";
+            targetPkgs = pkgs.pkgsCross.aarch64-multiplatform-musl;
+            crossCc = muslCcArm64;
+          };
+        }
+        // lib.optionalAttrs pkgs.stdenv.isDarwin {
+          "aarch64-apple-darwin" = mkPackage {
+            target = "aarch64-apple-darwin";
+          };
         };
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
-            rustToolchain
+            baseRust
             pkgs.pkg-config
-            pkgs.cacert
           ]
-          ++ lib.optionals useMusl [
-            muslCc
-            aarch64MuslCc
+          ++ lib.optionals isLinux [
+            muslCcX64
+            muslCcArm64
           ];
 
           shellHook =
-            if useMusl then
+            if isLinux then
               ''
-                export CC_x86_64_unknown_linux_musl=${muslCc}/bin/x86_64-unknown-linux-musl-gcc
+                echo "🔧 Configured for Linux Musl Cross-Compilation"
+                export CC_x86_64_unknown_linux_musl=${muslCcX64}/bin/x86_64-unknown-linux-musl-gcc
                 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=$CC_x86_64_unknown_linux_musl
-                export AR_x86_64_unknown_linux_musl=${muslCc.bintools}/bin/x86_64-unknown-linux-musl-ar
-                export CC_aarch64_unknown_linux_musl=${aarch64MuslCc}/bin/aarch64-unknown-linux-musl-gcc
+
+                export CC_aarch64_unknown_linux_musl=${muslCcArm64}/bin/aarch64-unknown-linux-musl-gcc
                 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=$CC_aarch64_unknown_linux_musl
-                export AR_aarch64_unknown_linux_musl=${aarch64MuslCc.bintools}/bin/aarch64-unknown-linux-musl-ar
-                export CARGO_BUILD_TARGET=x86_64-unknown-linux-musl
-                echo "Using musl toolchain (x86_64 + aarch64): $CC_x86_64_unknown_linux_musl / $CC_aarch64_unknown_linux_musl"
               ''
             else
               ''
-                echo "Using host toolchain (no musl override)"
+                echo "🍎 Configured for macOS"
               '';
         };
       }

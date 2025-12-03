@@ -9,46 +9,32 @@ permissions:
   contents: read
 
 jobs:
-  nix:
-    name: Nix CI (${{ matrix.os }})
+  nix-tests:
+    name: Nix Checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    permissions:
-      id-token: write
-      contents: read
-    env:
-      CARGO_TERM_COLOR: always
     strategy:
+      fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
+        os: [ubuntu-latest, macos-latest]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@main
 
-      - name: Format check (nix develop)
+      - name: Check Formatting
         run: nix develop -c cargo fmt --all -- --check
 
-      - name: Tests (nix develop)
+      - name: Run Tests
         run: nix develop -c cargo test --all
 
-      - name: Build package
-        run: nix build .#github_fetcher
+      - name: Build Package
+        run: nix build .
 
-  windows-test:
-    name: Windows tests
+  windows-tests:
+    name: Windows Checks
     runs-on: windows-latest
-    env:
-      CARGO_TERM_COLOR: always
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Tests
-        run: cargo test --all
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all
