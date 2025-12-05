@@ -1,5 +1,8 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use std::{borrow::Cow, fmt};
+
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::{self, Unexpected, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct RepoArgs {
@@ -97,13 +100,116 @@ pub enum EntryType {
     Submodule,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone, Copy)]
-#[serde(untagged)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineRange {
-    /// A single number N means keep lines 1..=N.
+    /// A single number N or a prefix like `..N` means keep lines 1..=N.
     End(usize),
-    /// Two numbers [start, end] mean keep lines start..=end.
-    Range([usize; 2]),
+    /// A range like `start..end` or `start...end` keeps lines start..=end.
+    Range { start: usize, end: usize },
+    /// A suffix like `start..` keeps lines start..=EOF.
+    Start(usize),
+}
+
+impl LineRange {
+    pub fn bounds(self) -> (usize, Option<usize>) {
+        match self {
+            LineRange::End(end) => (1, Some(end)),
+            LineRange::Range { start, end } => (start, Some(end)),
+            LineRange::Start(start) => (start, None),
+        }
+    }
+}
+
+impl Serialize for LineRange {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for LineRange {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct LineRangeVisitor;
+
+        impl<'de> Visitor<'de> for LineRangeVisitor {
+            type Value = LineRange;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a line range like \"1..200\", \"1...200\", \"..200\", \"1..\", \"1:200\", \"1:\", \":200\", or a positive integer")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(LineRange::End(value as usize))
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if value < 0 {
+                    return Err(E::invalid_value(Unexpected::Signed(value), &self));
+                }
+
+                Ok(LineRange::End(value as usize))
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                parse_line_range(value)
+                    .ok_or_else(|| E::invalid_value(Unexpected::Str(value), &self))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                self.visit_str(&value)
+            }
+
+            fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let _ = seq;
+                Err(de::Error::invalid_type(Unexpected::Seq, &self))
+            }
+        }
+
+        deserializer.deserialize_any(LineRangeVisitor)
+    }
+}
+
+impl fmt::Display for LineRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LineRange::End(end) => write!(f, "..{}", end),
+            LineRange::Range { start, end } => write!(f, "{}..{}", start, end),
+            LineRange::Start(start) => write!(f, "{}..", start),
+        }
+    }
+}
+
+impl JsonSchema for LineRange {
+    fn schema_name() -> Cow<'static, str> {
+        Cow::from("LineRange")
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": ["string", "integer"],
+            "description": "Line ranges like \"1..200\", \"1...200\", \"1..\", \"..200\", \"1:200\", \"1:\", or \":200\"; a bare number N keeps lines 1..=N.",
+        })
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -184,4 +290,77 @@ pub struct BranchesResponse {
 
 pub fn default_depth() -> usize {
     1
+}
+
+fn parse_line_range(value: &str) -> Option<LineRange> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Ok(end) = value.parse::<usize>() {
+        return Some(LineRange::End(end));
+    }
+
+    let separator = if value.contains("...") {
+        "..."
+    } else if value.contains("..") {
+        ".."
+    } else if value.contains(':') {
+        ":"
+    } else {
+        return None;
+    };
+
+    let mut parts = value.splitn(2, separator);
+    let start = parts.next().unwrap_or("").trim();
+    let end = parts.next().unwrap_or("").trim();
+
+    let start = if start.is_empty() {
+        None
+    } else {
+        start.parse::<usize>().ok()
+    };
+
+    let end = if end.is_empty() {
+        None
+    } else {
+        end.parse::<usize>().ok()
+    };
+
+    match (start, end) {
+        (Some(start), Some(end)) => Some(LineRange::Range { start, end }),
+        (Some(start), None) => Some(LineRange::Start(start)),
+        (None, Some(end)) => Some(LineRange::End(end)),
+        (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LineRange;
+
+    #[test]
+    fn parses_line_range_strings() {
+        let cases = [
+            ("\"1..200\"", LineRange::Range { start: 1, end: 200 }),
+            ("\"1...200\"", LineRange::Range { start: 1, end: 200 }),
+            ("\"..200\"", LineRange::End(200)),
+            ("\"1..\"", LineRange::Start(1)),
+            ("\"1:200\"", LineRange::Range { start: 1, end: 200 }),
+            ("\"1:\"", LineRange::Start(1)),
+            ("\":200\"", LineRange::End(200)),
+        ];
+
+        for (input, expected) in cases {
+            let parsed: LineRange = serde_json::from_str(input).unwrap();
+            assert_eq!(parsed, expected);
+        }
+    }
+
+    #[test]
+    fn parses_numeric_line_range() {
+        let parsed: LineRange = serde_json::from_str("10").unwrap();
+        assert_eq!(parsed, LineRange::End(10));
+    }
 }

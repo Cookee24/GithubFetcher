@@ -18,7 +18,7 @@ An MCP server that surfaces a focused set of GitHub-read endpoints (repos, tags,
 
 ## Notes on responses
 - `tree` and `get_stats` emit `type` values: `file`, `dir`, `symlink`, or `submodule`.
-- `get_file` can trim content by `line_range` or `max_chars` (UTF-8 safe). Ranges are 1-based and inclusive; `[start, end]` or a single number `N` meaning lines `1..=N`.
+- `get_file` can trim content by `line_range` or `max_chars` (UTF-8 safe). Ranges are 1-based and inclusive; strings like `1..200`, `1...200`, `..200`, `1..`, `1:200`, `1:`, `:200`, or a single number `N` meaning lines `1..=N`.
 - `list_repos` transparently tries both user and org scopes.
 
 <details>
@@ -45,7 +45,7 @@ An MCP server that surfaces a focused set of GitHub-read endpoints (repos, tags,
 - Output: `entries` (array of tree nodes) each with `type`, `name`, `size` (u64?), `target` (string? for symlink), `submodule_git_url` (string?), `children` (nested entries)
 
 #### get_file
-- Input: `owner` (string), `repo` (string), `path` (string), `ref` (string?, git ref), `line_range` (number or `[start, end]`), `max_chars` (usize?)
+- Input: `owner` (string), `repo` (string), `path` (string), `ref` (string?, git ref), `line_range` (string formats like `1..200`, `1...200`, `..200`, `1..`, `1:200`, `1:`, `:200`, or a number `N`), `max_chars` (usize?)
 - Output: `content` (string, decoded and optionally trimmed)
 
 #### search

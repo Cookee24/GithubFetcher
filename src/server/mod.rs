@@ -191,9 +191,10 @@ fn apply_content_limits(
     };
 
     if let Some(range) = line_range {
-        output = match range {
-            crate::models::LineRange::End(end) => slice_lines(&output, 1, end),
-            crate::models::LineRange::Range([start, end]) => slice_lines(&output, start, end),
+        let (start, end) = range.bounds();
+        output = match end {
+            Some(end) => slice_lines(&output, start, end),
+            None => slice_lines(&output, start, usize::MAX),
         };
     }
 
@@ -263,7 +264,16 @@ mod tests {
     #[test]
     fn trims_to_line_range() {
         let content = "a\nb\nc\nd\n";
-        let limited = apply_content_limits(content, Some(LineRange::Range([2, 3])), None);
+        let limited =
+            apply_content_limits(content, Some(LineRange::Range { start: 2, end: 3 }), None);
+
+        assert_eq!(limited, "b\nc\n");
+    }
+
+    #[test]
+    fn trims_from_start_to_end() {
+        let content = "a\nb\nc\n";
+        let limited = apply_content_limits(content, Some(LineRange::Start(2)), None);
 
         assert_eq!(limited, "b\nc\n");
     }
