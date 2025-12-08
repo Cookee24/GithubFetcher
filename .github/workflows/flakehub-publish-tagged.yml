@@ -26,4 +26,4 @@ jobs:
           visibility: "public"
           name: "Cookee24/GithubFetcher"
           tag: "${{ inputs.tag }}"
-          include-output-paths: false
+          include-output-paths: true
