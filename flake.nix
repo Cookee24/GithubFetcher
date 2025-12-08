@@ -42,8 +42,8 @@
                   "AR_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "${cc.bintools}/bin/${target}-ar";
                   CARGO_BUILD_TARGET = target;
 
-                  rustTarget = lib.optional (target != null) target;
-                  buildInputs = lib.optional (cc != null) [ cc ];
+                  rustTarget = target;
+                  buildInputs = [ cc ];
                 }
               );
             in
