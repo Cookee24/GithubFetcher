@@ -1,125 +1,100 @@
 {
-  description = "Github Fetcher with multi-target support";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
-    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
   outputs =
     {
       self,
       nixpkgs,
-      flake-utils,
-      rust-overlay,
     }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (
-      system:
-      let
-        overlays = [ rust-overlay.overlays.default ];
-        pkgs = import nixpkgs { inherit system overlays; };
-        lib = pkgs.lib;
+    let
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ];
+      forEachSystem = nixpkgs.lib.genAttrs systems;
+    in
+    {
+      packages = forEachSystem (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          lib = pkgs.lib;
 
-        baseRust = pkgs.rust-bin.stable.latest.default;
-
-        isLinux = pkgs.stdenv.isLinux;
-
-        muslCcX64 = pkgs.pkgsCross.musl64.stdenv.cc;
-        muslCcArm64 = pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv.cc;
-
-        targetAliases = {
-          "arm64-apple-darwin" = "aarch64-apple-darwin";
-        };
-
-        canonicalTarget = target: targetAliases.${target} or target;
-
-        mkPackage =
-          {
-            target,
-            targetPkgs ? pkgs,
-            crossCc ? null,
-          }:
-          let
-            rustTarget = canonicalTarget target;
-            toolchain = baseRust.override { targets = [ rustTarget ]; };
-            rustPlatform = targetPkgs.makeRustPlatform {
-              cargo = toolchain;
-              rustc = toolchain;
-            };
-
-            targetEnv = lib.optionalAttrs (crossCc != null) {
-              "CC_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" = "${crossCc}/bin/${rustTarget}-gcc";
-              "CARGO_TARGET_${builtins.replaceStrings [ "-" ] [ "_" ] (lib.toUpper rustTarget)}_LINKER" =
-                "${crossCc}/bin/${rustTarget}-gcc";
-              "AR_${builtins.replaceStrings [ "-" ] [ "_" ] rustTarget}" =
-                "${crossCc.bintools}/bin/${rustTarget}-ar";
-              CARGO_BUILD_TARGET = rustTarget;
-            };
-          in
-          rustPlatform.buildRustPackage (
+          mkPackage =
             {
-              pname = "github-fetcher-mcp";
-              version = "0.1.2";
-              src = ./.;
-              cargoLock.lockFile = ./Cargo.lock;
-              cargoBuildTarget = rustTarget;
+              cross ? null,
+            }:
+            let
+              lib = pkgs.lib;
 
-              nativeBuildInputs = lib.optionals (crossCc != null) [ crossCc ];
-            }
-            // targetEnv
-          );
+              crossAttrs = lib.optionalAttrs (cross != null) (
+                let
+                  cc = cross.cc;
+                  target = cross.target;
+                in
+                {
+                  "CC_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "${cc}/bin/${target}-gcc";
+                  "CARGO_TARGET_${builtins.replaceStrings [ "-" ] [ "_" ] (lib.toUpper target)}_LINKER" =
+                    "${cc}/bin/${target}-gcc";
+                  "AR_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "${cc.bintools}/bin/${target}-ar";
+                  CARGO_BUILD_TARGET = target;
 
-      in
-      {
-        packages = {
-          default = self.packages.${system}."github-fetcher-mcp";
-
-          "github-fetcher-mcp" = mkPackage { target = pkgs.stdenv.hostPlatform.config; };
+                  rustTarget = lib.optional (target != null) target;
+                  buildInputs = lib.optional (cc != null) [ cc ];
+                }
+              );
+            in
+            pkgs.rustPlatform.buildRustPackage (
+              {
+                pname = "github-fetcher-mcp";
+                version = "0.1.3";
+                src = ./.;
+                cargoLock.lockFile = ./Cargo.lock;
+              }
+              // crossAttrs
+            );
+        in
+        {
+          default = mkPackage { };
         }
-        // lib.optionalAttrs isLinux {
+        // lib.optionalAttrs (pkgs.stdenv.isLinux) {
           "x86_64-unknown-linux-musl" = mkPackage {
-            target = "x86_64-unknown-linux-musl";
-            targetPkgs = pkgs.pkgsCross.musl64;
-            crossCc = muslCcX64;
+            cross = {
+              target = "x86_64-unknown-linux-musl";
+              cc = pkgs.pkgsCross.musl64.stdenv.cc;
+            };
           };
           "aarch64-unknown-linux-musl" = mkPackage {
-            target = "aarch64-unknown-linux-musl";
-            targetPkgs = pkgs.pkgsCross.aarch64-multiplatform-musl;
-            crossCc = muslCcArm64;
+            cross = {
+              target = "aarch64-unknown-linux-musl";
+              cc = pkgs.pkgsCross.aarch64-multiplatform-musl.stdenv.cc;
+            };
           };
         }
         // lib.optionalAttrs pkgs.stdenv.isDarwin {
-          "aarch64-apple-darwin" = mkPackage {
-            target = "aarch64-apple-darwin";
+          "aarch64-apple-darwin" = mkPackage { };
+        }
+      );
+
+      devShells = forEachSystem (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          default = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              pkg-config
+              rustc
+              cargo
+            ];
+
+            RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
           };
-        };
-
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            baseRust
-            pkgs.pkg-config
-          ]
-          ++ lib.optionals isLinux [
-            muslCcX64
-            muslCcArm64
-          ];
-
-          shellHook =
-            if isLinux then
-              ''
-                echo "🔧 Configured for Linux Musl Cross-Compilation"
-                export CC_x86_64_unknown_linux_musl=${muslCcX64}/bin/x86_64-unknown-linux-musl-gcc
-                export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=$CC_x86_64_unknown_linux_musl
-
-                export CC_aarch64_unknown_linux_musl=${muslCcArm64}/bin/aarch64-unknown-linux-musl-gcc
-                export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=$CC_aarch64_unknown_linux_musl
-              ''
-            else
-              ''
-                echo "🍎 Configured for macOS"
-              '';
-        };
-      }
-    );
+        }
+      );
+    };
 }
